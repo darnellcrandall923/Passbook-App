@@ -1,0 +1,14 @@
+{
+  "name": "Passbook",
+  "short_name": "Passbook",
+  "description": "Budgets, goals, and a monthly savings plan.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EFECDF",
+  "theme_color": "#EFECDF",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
