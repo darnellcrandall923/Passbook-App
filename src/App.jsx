@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutDashboard, Receipt, Wallet, Target, Plus, Trash2, Upload,
-  TrendingUp, TrendingDown, X, Pencil, ChevronRight, PiggyBank, CalendarDays, ArrowRight, Calculator, LogOut
+  TrendingUp, TrendingDown, X, Pencil, ChevronRight, PiggyBank, CalendarDays, ArrowRight, Calculator, LogOut, FileUp
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
@@ -221,6 +221,37 @@ function computeMonthlyPlan(scheduled, monthStart, monthEnd) {
 
   return { incomeOccurrences, billOccurrences, buckets, carried, totalIncome, totalBills, sources };
 }
+
+// Spreads a month's total discretionary pool (income - bills - budgets)
+// evenly across every day of the month, so the weekly figure never jumps
+// around just because a paycheck or bill happens to land in a given week.
+// Weeks that take in more than their flat share bank the difference as a
+// buffer; weeks with heavier bills draw the buffer back down.
+function computeWeeklySmoothedPlan(scheduled, monthStart, monthEnd, pool) {
+  const totalDays = Math.round((monthEnd - monthStart) / 86400000) + 1;
+  const dailyRate = totalDays > 0 ? pool / totalDays : 0;
+  const weeks = [];
+  let cursor = new Date(monthStart);
+  let cumulativeNet = 0, cumulativeTarget = 0;
+  while (cursor <= monthEnd) {
+    const weekEndCandidate = addDays(cursor, 6);
+    const weekEnd = weekEndCandidate <= monthEnd ? weekEndCandidate : new Date(monthEnd);
+    const days = Math.round((weekEnd - cursor) / 86400000) + 1;
+    const totals = rangeTotals(scheduled, cursor, weekEnd);
+    const net = totals.income - totals.bills;
+    const target = dailyRate * days;
+    cumulativeNet += net;
+    cumulativeTarget += target;
+    weeks.push({
+      start: new Date(cursor), end: new Date(weekEnd), days,
+      income: totals.income, bills: totals.bills, net, target,
+      bufferAfter: cumulativeNet - cumulativeTarget,
+    });
+    cursor = addDays(weekEnd, 1);
+  }
+  return { dailyRate, weeklyTarget: dailyRate * 7, weeks };
+}
+
 const fmt = (n) => (n < 0 ? "-" : "") + "$" + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const monthKey = (d) => d.slice(0, 7);
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -283,8 +314,8 @@ function Empty({ icon: Icon, title, body }) {
 }
 
 /* ---------- stamp progress ring (signature element) ---------- */
-function SpendingLimitCard({ title, income, bills, budgeted, spent, hasData, onManage, manageLabel }) {
-  const limit = income - bills - budgeted;
+function SpendingLimitCard({ title, income, bills, budgeted, limit: limitOverride, spent, hasData, onManage, manageLabel, note, noteColor, subtitle }) {
+  const limit = limitOverride != null ? limitOverride : income - bills - budgeted;
   const ratio = limit > 0 ? spent / limit : (spent > 0 ? 1.5 : 0);
   return (
     <Card>
@@ -303,17 +334,105 @@ function SpendingLimitCard({ title, income, bills, budgeted, spent, hasData, onM
       </div>
       {hasData && (
         <>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11.5, color: T.inkSoft, marginTop: 10, fontFamily: "'IBM Plex Mono', monospace" }}>
-            <span>Income {fmt(income)}</span>
-            <span>− Bills {fmt(bills)}</span>
-            <span>− Budgeted {fmt(budgeted)}</span>
-            <span style={{ color: T.ink }}>= Limit {fmt(limit)}</span>
-          </div>
+          {subtitle && <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 4 }}>{subtitle}</div>}
+          {income != null && (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11.5, color: T.inkSoft, marginTop: 10, fontFamily: "'IBM Plex Mono', monospace" }}>
+              <span>Income {fmt(income)}</span>
+              <span>− Bills {fmt(bills)}</span>
+              <span>− Budgeted {fmt(budgeted)}</span>
+              <span style={{ color: T.ink }}>= Limit {fmt(limit)}</span>
+            </div>
+          )}
           <div style={{ margin: "12px 0 6px" }}><BudgetBar spentRatio={ratio} /></div>
           <div style={{ fontSize: 11.5, color: T.inkSoft }}>{fmt(spent)} spent so far</div>
+          {note && <div style={{ fontSize: 11.5, color: noteColor || T.inkSoft, marginTop: 6 }}>{note}</div>}
         </>
       )}
     </Card>
+  );
+}
+
+function ImportModal({ onClose, onImport }) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const [preview, setPreview] = useState(null);
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setText(ev.target.result);
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const runImport = () => {
+    setError("");
+    try {
+      const parsed = JSON.parse(text);
+      const keys = ["accounts", "transactions", "goals", "budgets", "scheduled"];
+      const hasAny = keys.some((k) => Array.isArray(parsed[k]));
+      if (!hasAny) throw new Error("This file doesn't look like a Passbook export — no recognized data found.");
+      onImport(parsed);
+    } catch (e) {
+      setError(e.message || "Couldn't read that as valid JSON.");
+    }
+  };
+
+  const showPreview = () => {
+    setError("");
+    try {
+      const parsed = JSON.parse(text);
+      setPreview({
+        accounts: parsed.accounts?.length || 0,
+        transactions: parsed.transactions?.length || 0,
+        goals: parsed.goals?.length || 0,
+        budgets: parsed.budgets?.length || 0,
+        scheduled: parsed.scheduled?.length || 0,
+      });
+    } catch (e) {
+      setError("Couldn't read that as valid JSON.");
+      setPreview(null);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(30,42,34,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }}>
+      <div style={{ background: T.surface, borderRadius: 12, padding: "1.5rem", width: "100%", maxWidth: 460, border: `0.5px solid ${T.line}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+          <div style={{ fontFamily: "Fraunces, serif", fontSize: 18 }}>Import data</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.inkSoft }}><X size={16} /></button>
+        </div>
+        <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 14 }}>
+          This replaces your current accounts, transactions, budgets, goals, and calendar items with what's in the file. Use this once, right after signing in with a fresh account.
+        </div>
+
+        <label className="btn secondary" style={{ cursor: "pointer", width: "100%", justifyContent: "center", marginBottom: 10 }}>
+          <FileUp size={14} /> Choose exported .json file
+          <input type="file" accept=".json,application/json" onChange={handleFile} style={{ display: "none" }} />
+        </label>
+
+        <textarea
+          className="field" rows={5} placeholder="…or paste the exported JSON here"
+          value={text} onChange={(e) => { setText(e.target.value); setPreview(null); }}
+          style={{ width: "100%", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, resize: "vertical" }}
+        />
+
+        {error && <div style={{ color: T.negative, fontSize: 12.5, marginTop: 8 }}>{error}</div>}
+
+        {preview && !error && (
+          <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 8 }}>
+            Found {preview.accounts} accounts, {preview.transactions} transactions, {preview.goals} goals, {preview.budgets} budgets, {preview.scheduled} calendar items.
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button className="btn secondary" onClick={showPreview} disabled={!text.trim()}>Preview</button>
+          <button className="btn" onClick={runImport} disabled={!text.trim()}>Import</button>
+          <button className="btn secondary" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -360,6 +479,7 @@ function PassbookApp({ session }) {
   const [scheduled, setScheduled] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("dashboard");
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     loadAll().then((d) => {
@@ -373,6 +493,15 @@ function PassbookApp({ session }) {
   const updateGoals = useCallback((next) => { setGoals(next); save("goals", next); }, []);
   const updateBudgets = useCallback((next) => { setBudgets(next); save("budgets", next); }, []);
   const updateScheduled = useCallback((next) => { setScheduled(next); save("scheduled", next); }, []);
+
+  const handleImport = (data) => {
+    updateAccounts(data.accounts || []);
+    updateTransactions(data.transactions || []);
+    updateGoals(data.goals || []);
+    updateBudgets(data.budgets || []);
+    updateScheduled(data.scheduled || []);
+    setShowImport(false);
+  };
 
   const netWorth = useMemo(() => accounts.reduce((sum, a) => {
     const type = ACCOUNT_TYPES.find((t) => t.id === a.type);
@@ -424,11 +553,16 @@ function PassbookApp({ session }) {
           <div style={{ fontSize: 10.5, color: T.inkSoft, padding: "0 8px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={session?.user?.email}>
             {session?.user?.email}
           </div>
+          <button className="navbtn" onClick={() => setShowImport(true)} style={{ color: T.inkSoft }}>
+            <FileUp size={15} /> Import data
+          </button>
           <button className="navbtn" onClick={() => supabase.auth.signOut()} style={{ color: T.inkSoft }}>
             <LogOut size={15} /> Sign out
           </button>
         </div>
       </div>
+
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onImport={handleImport} />}
 
       {/* Main */}
       <div style={{ flex: 1, padding: "1.5rem 1.75rem", maxHeight: 720, overflowY: "auto" }}>
@@ -443,7 +577,7 @@ function PassbookApp({ session }) {
         ) : tab === "calendar" ? (
           <CalendarView scheduled={scheduled} setScheduled={updateScheduled} accounts={accounts} />
         ) : tab === "plan" ? (
-          <MonthlyPlanView scheduled={scheduled} setTab={setTab} />
+          <MonthlyPlanView scheduled={scheduled} budgets={budgets} setTab={setTab} />
         ) : tab === "accounts" ? (
           <AccountsView accounts={accounts} setAccounts={updateAccounts} />
         ) : (
@@ -506,12 +640,21 @@ function Dashboard({ accounts, transactions, goals, budgets, scheduled, netWorth
   const plan = useMemo(() => computeMonthlyPlan(scheduled, monthStart, monthEndDate), [scheduled]);
   const monthlyBudgeted = useMemo(() => budgets.reduce((s, b) => s + budgetMonthlyEquivalent(b, daysInMonth), 0), [budgets]);
   const hasMonthData = plan.totalIncome > 0 || budgets.length > 0;
+  const monthlyPool = plan.totalIncome - plan.totalBills - monthlyBudgeted;
 
-  const weekRange = periodRange("weekly");
-  const weekTotals = useMemo(() => rangeTotals(scheduled, weekRange.start, weekRange.end), [scheduled]);
-  const weeklyBudgeted = useMemo(() => budgets.reduce((s, b) => s + budgetWeeklyEquivalent(b, daysInMonth), 0), [budgets]);
+  const smoothed = useMemo(() => computeWeeklySmoothedPlan(scheduled, monthStart, monthEndDate, monthlyPool), [scheduled, monthlyPool]);
   const weekSpend = spentFor(transactions, "Overall", "weekly");
-  const hasWeekData = weekTotals.income > 0 || budgets.length > 0;
+  const hasWeekData = hasMonthData;
+
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const daysElapsed = Math.min(daysInMonth, Math.round((today - monthStart) / 86400000) + 1);
+  const targetSoFar = smoothed.dailyRate * daysElapsed;
+  const actualSoFar = rangeTotals(scheduled, monthStart, today);
+  const bufferSoFar = (actualSoFar.income - actualSoFar.bills) - targetSoFar;
+  const bufferNote = Math.abs(bufferSoFar) < 1 ? null :
+    bufferSoFar > 0
+      ? `Running ${fmt(bufferSoFar)} ahead of pace — banked for a heavier week later this month.`
+      : `Running ${fmt(Math.abs(bufferSoFar))} behind pace — bills have outpaced income so far this month.`;
 
   const recent = [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
 
@@ -534,16 +677,20 @@ function Dashboard({ accounts, transactions, goals, budgets, scheduled, netWorth
         <SpendingLimitCard
           title="Month spending limit"
           income={plan.totalIncome} bills={plan.totalBills} budgeted={monthlyBudgeted}
+          subtitle={hasMonthData ? `≈ ${fmt(smoothed.weeklyTarget)}/week if spread evenly` : null}
           spent={monthSpend} hasData={hasMonthData}
           onManage={() => setTab("plan")} manageLabel="Monthly plan"
         />
         <SpendingLimitCard
           title="Week spending limit"
-          income={weekTotals.income} bills={weekTotals.bills} budgeted={weeklyBudgeted}
+          limit={smoothed.weeklyTarget}
+          subtitle={hasWeekData ? "Same every week — smoothed across the month so bigger bills don't create spikes." : null}
           spent={weekSpend} hasData={hasWeekData}
-          onManage={() => setTab("budgets")} manageLabel="Budgets"
+          note={bufferNote} noteColor={bufferSoFar > 0 ? T.positive : T.negative}
+          onManage={() => setTab("plan")} manageLabel="Monthly plan"
         />
       </div>
+
 
       <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 12, marginBottom: 20 }}>
         <Card>
@@ -1091,12 +1238,16 @@ function CalendarView({ scheduled, setScheduled, accounts }) {
 }
 
 /* ---------- Monthly plan ---------- */
-function MonthlyPlanView({ scheduled, setTab }) {
+function MonthlyPlanView({ scheduled, budgets, setTab }) {
   const [monthCursor, setMonthCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const monthEnd = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0);
+  const daysInMonth = monthEnd.getDate();
 
   const plan = useMemo(() => computeMonthlyPlan(scheduled, monthCursor, monthEnd), [scheduled, monthCursor]);
+  const monthlyBudgeted = useMemo(() => budgets.reduce((s, b) => s + budgetMonthlyEquivalent(b, daysInMonth), 0), [budgets, daysInMonth]);
   const leftover = plan.totalIncome - plan.totalBills;
+  const pool = leftover - monthlyBudgeted;
+  const smoothed = useMemo(() => computeWeeklySmoothedPlan(scheduled, monthCursor, monthEnd, pool), [scheduled, monthCursor, pool]);
   const hasIncome = plan.incomeOccurrences.length > 0;
 
   return (
@@ -1135,6 +1286,46 @@ function MonthlyPlanView({ scheduled, setTab }) {
               <div style={{ fontSize: 12, color: T.inkSoft, marginBottom: 6 }}>Left after bills</div>
               <Money value={leftover} size={20} />
             </Card>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>Weekly spending limit</div>
+            <div style={{ fontSize: 11.5, color: T.inkSoft }}>smoothed evenly across the month, budgets included</div>
+          </div>
+          <Card style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+              <div style={{ fontFamily: "Fraunces, serif", fontSize: 26 }}>{fmt(smoothed.weeklyTarget)}</div>
+              <div style={{ fontSize: 12, color: T.inkSoft }}>every week, same number</div>
+            </div>
+            <div style={{ fontSize: 11.5, color: T.inkSoft }}>
+              Weeks with more income than bills bank the extra as a buffer; weeks with heavier bills draw it back down — so this number stays flat all month.
+            </div>
+          </Card>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {smoothed.weeks.map((w, i) => {
+              const over = w.bufferAfter < -0.5;
+              return (
+                <Card key={i}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{toDateStr(w.start)} – {toDateStr(w.end)}</div>
+                    <div style={{ fontSize: 11.5, color: T.inkSoft }}>{w.days} day{w.days === 1 ? "" : "s"}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 11.5, color: T.inkSoft, marginTop: 6, fontFamily: "'IBM Plex Mono', monospace" }}>
+                    <span>Income {fmt(w.income)}</span>
+                    <span>Bills {fmt(w.bills)}</span>
+                    <span style={{ color: T.ink }}>Net {fmt(w.net)}</span>
+                    <span>Target {fmt(w.target)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                    <span style={{ fontSize: 12 }}>Running buffer</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 500, color: over ? T.negative : T.positive }}>
+                      {w.bufferAfter >= 0 ? "+" : "−"}{fmt(Math.abs(w.bufferAfter))}
+                    </span>
+                  </div>
+                  {over && <div style={{ fontSize: 11, color: T.negative, marginTop: 4 }}>Bills are running ahead of income by this point — lean on savings or spend less in prior weeks.</div>}
+                </Card>
+              );
+            })}
           </div>
 
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Set aside from each income source</div>
