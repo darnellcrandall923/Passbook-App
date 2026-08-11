@@ -89,3 +89,4 @@ React + Vite, [Supabase](https://supabase.com) (Postgres + auth),
 [Recharts](https://recharts.org) for charts, [Lucide](https://lucide.dev)
 for icons, and [PapaParse](https://www.papaparse.com/) for CSV import.
 "# Passbook-App" 
+"# Passbook-App" 
