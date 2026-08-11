@@ -37,11 +37,11 @@ export default function Auth() {
   return (
     <div style={{
       fontFamily: "'IBM Plex Sans', sans-serif", background: T.paper, color: T.ink,
-      minHeight: 600, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem",
+      minHeight: "100vh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem",
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
-        .authfield { border:1px solid ${T.line}; border-radius:8px; padding:10px 12px; font-size:14px; background:${T.surface}; color:${T.ink}; width:100%; }
+        .authfield { border:1px solid ${T.line}; border-radius:8px; padding:10px 12px; font-size:16px; background:${T.surface}; color:${T.ink}; width:100%; }
         .authfield:focus { outline:2px solid ${T.brass}; outline-offset:1px; }
         .authbtn { border:1px solid ${T.ink}; background:${T.ink}; color:${T.paper}; border-radius:8px; padding:10px 14px; font-size:14px; font-weight:500; width:100%; cursor:pointer; }
         .authbtn:disabled { opacity: 0.6; cursor: default; }

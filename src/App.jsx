@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutDashboard, Receipt, Wallet, Target, Plus, Trash2, Upload,
-  TrendingUp, TrendingDown, X, Pencil, ChevronRight, PiggyBank, CalendarDays, ArrowRight, Calculator, LogOut, FileUp
+  TrendingUp, TrendingDown, X, Pencil, ChevronRight, PiggyBank, CalendarDays, ArrowRight, Calculator, LogOut, FileUp, Menu
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
@@ -100,6 +100,23 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Ma
 const parseDateStr = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+
+// Tracks whether the viewport is phone-sized, so components can switch
+// multi-column layouts to a single stacked column below this width.
+const MOBILE_BREAKPOINT = 700;
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= MOBILE_BREAKPOINT
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
+    const handler = (e) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return isMobile;
+}
 
 const FREQUENCIES = [
   { id: "once", label: "One time" },
@@ -415,7 +432,7 @@ function ImportModal({ onClose, onImport }) {
         <textarea
           className="field" rows={5} placeholder="…or paste the exported JSON here"
           value={text} onChange={(e) => { setText(e.target.value); setPreview(null); }}
-          style={{ width: "100%", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, resize: "vertical" }}
+          style={{ width: "100%", fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, resize: "vertical" }}
         />
 
         {error && <div style={{ color: T.negative, fontSize: 12.5, marginTop: 8 }}>{error}</div>}
@@ -480,6 +497,8 @@ function PassbookApp({ session }) {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("dashboard");
   const [showImport, setShowImport] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     loadAll().then((d) => {
@@ -509,63 +528,98 @@ function PassbookApp({ session }) {
   }, 0), [accounts]);
 
   const nav = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "transactions", label: "Transactions", icon: Receipt },
-    { id: "budgets", label: "Budgets", icon: PiggyBank },
-    { id: "calendar", label: "Calendar", icon: CalendarDays },
-    { id: "plan", label: "Monthly plan", icon: Calculator },
-    { id: "accounts", label: "Accounts", icon: Wallet },
-    { id: "goals", label: "Goals", icon: Target },
+    { id: "dashboard", label: "Dashboard", short: "Home", icon: LayoutDashboard },
+    { id: "transactions", label: "Transactions", short: "Activity", icon: Receipt },
+    { id: "budgets", label: "Budgets", short: "Budgets", icon: PiggyBank },
+    { id: "calendar", label: "Calendar", short: "Calendar", icon: CalendarDays },
+    { id: "plan", label: "Monthly plan", short: "Plan", icon: Calculator },
+    { id: "accounts", label: "Accounts", short: "Accounts", icon: Wallet },
+    { id: "goals", label: "Goals", short: "Goals", icon: Target },
   ];
 
   return (
-    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: T.paper, color: T.ink, minHeight: 600, borderRadius: 16, overflow: "hidden", display: "flex" }}>
+    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: T.paper, color: T.ink, minHeight: "100vh", width: "100%", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
         * { box-sizing: border-box; }
         button { font-family: inherit; cursor: pointer; }
-        input, select, textarea { font-family: inherit; }
+        input, select, textarea { font-family: inherit; font-size: 16px; }
         ::placeholder { color: #9C9788; }
         .navbtn { display:flex; align-items:center; gap:10px; width:100%; padding:9px 12px; border-radius:8px; border:none; background:transparent; color:${T.inkSoft}; font-size:13.5px; font-weight:500; text-align:left; transition: background .15s, color .15s; }
         .navbtn:hover { background: ${T.brassLight}; }
         .navbtn.active { background: ${T.ink}; color: ${T.paper}; }
         .field { border:1px solid ${T.line}; border-radius:8px; padding:8px 10px; font-size:13.5px; background:${T.surface}; color:${T.ink}; }
+        @media (max-width: 700px) {
+          .field { font-size: 16px; }
+        }
         .field:focus { outline:2px solid ${T.brass}; outline-offset:1px; }
         .btn { border:1px solid ${T.ink}; background:${T.ink}; color:${T.paper}; border-radius:8px; padding:8px 14px; font-size:13px; font-weight:500; display:inline-flex; align-items:center; gap:6px; }
         .btn.secondary { background:transparent; color:${T.ink}; border:1px solid ${T.line}; }
         .btn:active { transform: scale(0.98); }
         .row:hover { background: ${T.brassLight}55; }
+        .bottomnav-btn { flex: 1 0 auto; min-width: 60px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 4px 6px; background:none; border:none; color:${T.inkSoft}; font-size:9.5px; font-weight:500; }
+        .bottomnav-btn.active { color: ${T.brass}; }
       `}</style>
 
-      {/* Sidebar */}
-      <div style={{ width: 190, borderRight: `0.5px solid ${T.line}`, padding: "1.25rem 0.85rem", display: "flex", flexDirection: "column", gap: 4 }}>
-        <div style={{ fontFamily: "Fraunces, serif", fontSize: 20, fontWeight: 600, padding: "4px 8px 18px" }}>Passbook</div>
-        {nav.map((n) => (
-          <button key={n.id} className={`navbtn ${tab === n.id ? "active" : ""}`} onClick={() => setTab(n.id)}>
-            <n.icon size={16} /> {n.label}
-          </button>
-        ))}
-        <div style={{ marginTop: "auto", padding: "10px 8px", fontSize: 11, color: T.inkSoft, borderTop: `0.5px solid ${T.line}`, paddingTop: 14 }}>
-          Net worth
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 17, color: T.ink, marginTop: 2 }}>{fmt(netWorth)}</div>
-        </div>
-        <div style={{ paddingTop: 10, borderTop: `0.5px solid ${T.line}` }}>
-          <div style={{ fontSize: 10.5, color: T.inkSoft, padding: "0 8px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={session?.user?.email}>
-            {session?.user?.email}
+      {!isMobile && (
+        <div style={{ width: 190, borderRight: `0.5px solid ${T.line}`, padding: "1.25rem 0.85rem", display: "flex", flexDirection: "column", gap: 4, height: "100vh", position: "sticky", top: 0 }}>
+          <div style={{ fontFamily: "Fraunces, serif", fontSize: 20, fontWeight: 600, padding: "4px 8px 18px" }}>Passbook</div>
+          {nav.map((n) => (
+            <button key={n.id} className={`navbtn ${tab === n.id ? "active" : ""}`} onClick={() => setTab(n.id)}>
+              <n.icon size={16} /> {n.label}
+            </button>
+          ))}
+          <div style={{ marginTop: "auto", padding: "10px 8px", fontSize: 11, color: T.inkSoft, borderTop: `0.5px solid ${T.line}`, paddingTop: 14 }}>
+            Net worth
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 17, color: T.ink, marginTop: 2 }}>{fmt(netWorth)}</div>
           </div>
-          <button className="navbtn" onClick={() => setShowImport(true)} style={{ color: T.inkSoft }}>
-            <FileUp size={15} /> Import data
-          </button>
-          <button className="navbtn" onClick={() => supabase.auth.signOut()} style={{ color: T.inkSoft }}>
-            <LogOut size={15} /> Sign out
+          <div style={{ paddingTop: 10, borderTop: `0.5px solid ${T.line}` }}>
+            <div style={{ fontSize: 10.5, color: T.inkSoft, padding: "0 8px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={session?.user?.email}>
+              {session?.user?.email}
+            </div>
+            <button className="navbtn" onClick={() => setShowImport(true)} style={{ color: T.inkSoft }}>
+              <FileUp size={15} /> Import data
+            </button>
+            <button className="navbtn" onClick={() => supabase.auth.signOut()} style={{ color: T.inkSoft }}>
+              <LogOut size={15} /> Sign out
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isMobile && (
+        <div style={{ position: "sticky", top: 0, zIndex: 20, background: T.paper, borderBottom: `0.5px solid ${T.line}`, padding: "0.8rem 1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontFamily: "Fraunces, serif", fontSize: 18, fontWeight: 600 }}>Passbook</div>
+          <button onClick={() => setMenuOpen(true)} aria-label="Menu" style={{ background: "none", border: "none", color: T.ink, padding: 6 }}>
+            <Menu size={20} />
           </button>
         </div>
-      </div>
+      )}
+
+      {isMobile && menuOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(30,42,34,0.45)", zIndex: 40 }} onClick={() => setMenuOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "min(78vw, 280px)", background: T.surface, padding: "1.25rem 1rem", boxShadow: "-4px 0 16px rgba(0,0,0,0.15)", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+              <button onClick={() => setMenuOpen(false)} style={{ background: "none", border: "none", color: T.inkSoft }} aria-label="Close menu"><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: 11, color: T.inkSoft }}>Net worth</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, marginBottom: 18 }}>{fmt(netWorth)}</div>
+            <div style={{ fontSize: 10.5, color: T.inkSoft, marginBottom: 10, wordBreak: "break-all" }} title={session?.user?.email}>
+              {session?.user?.email}
+            </div>
+            <button className="navbtn" onClick={() => { setShowImport(true); setMenuOpen(false); }} style={{ color: T.inkSoft }}>
+              <FileUp size={15} /> Import data
+            </button>
+            <button className="navbtn" onClick={() => supabase.auth.signOut()} style={{ color: T.inkSoft }}>
+              <LogOut size={15} /> Sign out
+            </button>
+          </div>
+        </div>
+      )}
 
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImport={handleImport} />}
 
-      {/* Main */}
-      <div style={{ flex: 1, padding: "1.5rem 1.75rem", maxHeight: 720, overflowY: "auto" }}>
+      <div style={{ flex: 1, padding: isMobile ? "1rem" : "1.5rem 1.75rem", overflowY: "auto", height: isMobile ? undefined : "100vh", paddingBottom: isMobile ? 88 : undefined }}>
         {loading ? (
           <div style={{ color: T.inkSoft, fontSize: 14 }}>Loading your ledger…</div>
         ) : tab === "dashboard" ? (
@@ -584,6 +638,22 @@ function PassbookApp({ session }) {
           <GoalsView goals={goals} setGoals={updateGoals} accounts={accounts} />
         )}
       </div>
+
+      {isMobile && (
+        <div style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 20,
+          background: T.surface, borderTop: `0.5px solid ${T.line}`,
+          display: "flex", overflowX: "auto",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}>
+          {nav.map((n) => (
+            <button key={n.id} className={`bottomnav-btn ${tab === n.id ? "active" : ""}`} onClick={() => setTab(n.id)}>
+              <n.icon size={18} />
+              {n.short}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -622,6 +692,7 @@ export default function App() {
 
 /* ---------- Dashboard ---------- */
 function Dashboard({ accounts, transactions, goals, budgets, scheduled, netWorth, setTab }) {
+  const isMobile = useIsMobile();
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -673,7 +744,7 @@ function Dashboard({ accounts, transactions, goals, budgets, scheduled, netWorth
       <div style={{ fontFamily: "Fraunces, serif", fontSize: 22, marginBottom: 4 }}>Your dashboard</div>
       <div style={{ color: T.inkSoft, fontSize: 13.5, marginBottom: 20 }}>{now.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 20 }}>
         <SpendingLimitCard
           title="Month spending limit"
           income={plan.totalIncome} bills={plan.totalBills} budgeted={monthlyBudgeted}
@@ -692,7 +763,7 @@ function Dashboard({ accounts, transactions, goals, budgets, scheduled, netWorth
       </div>
 
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1fr", gap: 12, marginBottom: 20 }}>
         <Card>
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Spending by category</div>
           {byCat.length === 0 ? (
@@ -746,7 +817,7 @@ function Dashboard({ accounts, transactions, goals, budgets, scheduled, netWorth
         </Card>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
         <Card>
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Recent transactions</div>
           {recent.length === 0 ? <Empty icon={Receipt} title="No entries yet" body="Add your first transaction to start the ledger." /> :
@@ -784,7 +855,7 @@ function Dashboard({ accounts, transactions, goals, budgets, scheduled, netWorth
           <button onClick={() => setTab("calendar")} className="btn secondary" style={{ padding: "3px 8px", fontSize: 11 }}>Calendar <ChevronRight size={12} /></button>
         </div>
         {upcoming.length === 0 ? <Empty icon={CalendarDays} title="Nothing scheduled" body="Add recurring income or bills on the Calendar tab." /> : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(5, minmax(0,1fr))", gap: 10 }}>
             {upcoming.map((item, i) => (
               <div key={i} style={{ borderLeft: `2px solid ${item.amount >= 0 ? T.positive : T.negative}`, paddingLeft: 8 }}>
                 <div style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{toDateStr(item.occDate)}</div>
@@ -801,6 +872,7 @@ function Dashboard({ accounts, transactions, goals, budgets, scheduled, netWorth
 
 /* ---------- Transactions ---------- */
 function TransactionsView({ accounts, transactions, setTransactions }) {
+  const isMobile = useIsMobile();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ date: todayStr(), account: "", description: "", category: "", amount: "", flow: "expense" });
   const [filterCat, setFilterCat] = useState("All");
@@ -866,7 +938,7 @@ function TransactionsView({ accounts, transactions, setTransactions }) {
 
       {showForm && (
         <Card style={{ marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0,1fr))", gap: 8, alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(6, minmax(0,1fr))", gap: 8, alignItems: "end" }}>
             <div>
               <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 3 }}>Date</div>
               <input className="field" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={{ width: "100%" }} />
@@ -936,6 +1008,7 @@ function TransactionsView({ accounts, transactions, setTransactions }) {
 
 /* ---------- Budgets ---------- */
 function BudgetsView({ budgets, setBudgets, transactions, scheduled }) {
+  const isMobile = useIsMobile();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ category: "Overall", period: "monthly", amount: "" });
 
@@ -964,7 +1037,7 @@ function BudgetsView({ budgets, setBudgets, transactions, scheduled }) {
 
       {showForm && (
         <Card style={{ marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
             <div>
               <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 3 }}>Category</div>
               <select className="field" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} style={{ width: "100%" }}>
@@ -989,7 +1062,7 @@ function BudgetsView({ budgets, setBudgets, transactions, scheduled }) {
       )}
 
       {budgets.length === 0 ? <Empty icon={PiggyBank} title="No budgets set" body="Add a budget to start tracking against a spending limit." /> : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0,1fr))", gap: 12 }}>
           {BUDGET_PERIODS.map((p) => {
             const group = budgets.filter((b) => b.period === p.id);
             if (group.length === 0) return null;
@@ -1031,6 +1104,7 @@ function BudgetsView({ budgets, setBudgets, transactions, scheduled }) {
 
 /* ---------- Calendar ---------- */
 function CalendarView({ scheduled, setScheduled, accounts }) {
+  const isMobile = useIsMobile();
   const [monthCursor, setMonthCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const [selected, setSelected] = useState(toDateStr(new Date()));
   const [showForm, setShowForm] = useState(false);
@@ -1109,7 +1183,7 @@ function CalendarView({ scheduled, setScheduled, accounts }) {
 
       {showForm && (
         <Card style={{ marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr", gap: 8, alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr 1fr 1fr 1fr", gap: 8, alignItems: "end" }}>
             <div>
               <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 3 }}>Name</div>
               <input className="field" placeholder="Paycheck, rent, Netflix…" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ width: "100%" }} />
@@ -1140,7 +1214,7 @@ function CalendarView({ scheduled, setScheduled, accounts }) {
               </select>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginTop: 8, alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr auto", gap: 8, marginTop: 8, alignItems: "end" }}>
             <div>
               <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 3 }}>Account</div>
               <select className="field" value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value })} style={{ width: "100%" }}>
@@ -1157,7 +1231,7 @@ function CalendarView({ scheduled, setScheduled, accounts }) {
         </Card>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.5fr 1fr", gap: 12 }}>
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <button className="btn secondary" style={{ padding: "4px 9px" }} onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1))}>‹</button>
@@ -1239,6 +1313,7 @@ function CalendarView({ scheduled, setScheduled, accounts }) {
 
 /* ---------- Monthly plan ---------- */
 function MonthlyPlanView({ scheduled, budgets, setTab }) {
+  const isMobile = useIsMobile();
   const [monthCursor, setMonthCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const monthEnd = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0);
   const daysInMonth = monthEnd.getDate();
@@ -1273,7 +1348,7 @@ function MonthlyPlanView({ scheduled, budgets, setTab }) {
         </Card>
       ) : (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 12, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0,1fr))", gap: 12, marginBottom: 20 }}>
             <Card>
               <div style={{ fontSize: 12, color: T.inkSoft, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><TrendingUp size={13} /> Total income</div>
               <Money value={plan.totalIncome} size={20} />
@@ -1329,7 +1404,7 @@ function MonthlyPlanView({ scheduled, budgets, setTab }) {
           </div>
 
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Set aside from each income source</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0,1fr))", gap: 12, marginBottom: 24 }}>
             {plan.sources.map((s) => (
               <Card key={s.name}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1411,6 +1486,7 @@ function MonthlyPlanView({ scheduled, budgets, setTab }) {
 
 /* ---------- Accounts ---------- */
 function AccountsView({ accounts, setAccounts }) {
+  const isMobile = useIsMobile();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", type: "checking", balance: "" });
 
@@ -1435,7 +1511,7 @@ function AccountsView({ accounts, setAccounts }) {
 
       {showForm && (
         <Card style={{ marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr auto", gap: 8, alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1.3fr 1fr auto", gap: 8, alignItems: "end" }}>
             <div>
               <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 3 }}>Account name</div>
               <input className="field" placeholder="Chase Checking" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ width: "100%" }} />
@@ -1456,7 +1532,7 @@ function AccountsView({ accounts, setAccounts }) {
       )}
 
       {accounts.length === 0 ? <Empty icon={Wallet} title="No accounts yet" body="Add checking, savings, or credit accounts to track your net worth." /> : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0,1fr))", gap: 12 }}>
           {accounts.map((a) => {
             const type = ACCOUNT_TYPES.find((t) => t.id === a.type);
             return (
@@ -1492,6 +1568,7 @@ function monthsUntil(dateStr) {
 }
 
 function GoalsView({ goals, setGoals }) {
+  const isMobile = useIsMobile();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", target: "", saved: "", deadline: "" });
 
@@ -1516,7 +1593,7 @@ function GoalsView({ goals, setGoals }) {
 
       {showForm && (
         <Card style={{ marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
             <div>
               <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 3 }}>Goal name</div>
               <input className="field" placeholder="Trip to Japan" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ width: "100%" }} />
@@ -1539,7 +1616,7 @@ function GoalsView({ goals, setGoals }) {
       )}
 
       {goals.length === 0 ? <Empty icon={Target} title="No goals set" body="Create a goal to see how much to save each month." /> : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0,1fr))", gap: 12 }}>
           {goals.map((g) => {
             const remaining = Math.max(0, g.target - g.saved);
             const months = monthsUntil(g.deadline);
